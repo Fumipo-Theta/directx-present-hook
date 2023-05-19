@@ -63,20 +63,22 @@ int HookAndAttachWindow(HWND targetWindowHandle, const std::wstring& outputFolde
   return static_cast<char>(msg.wParam);
 }
 
-int WithTestWindow(int directXVersion, std::wstring outputFolder) {
-    BlackBoxDXWindow bbWindow = PrepareWindow<D3D11Renderer>(
-        (directXVersion == 12) ?
-        L"DirectX 12 Black Box Window" :
-        L"DirectX 11 Black Box Window"
-    );
+HWND getWindowHandleByTitle(LPCWSTR windowTitle) {
+    return  FindWindow(NULL, windowTitle);
+}
+
+template<class RendererT, class HookT>
+int WithAppWindow(std::wstring executableName) {
+    std::wstring outputFolder = L"";
+    LPCWSTR testWindowTitle = L"DirectX Black Box Window";
+    BlackBoxDXWindow bbWindow = PrepareWindow<RendererT>(testWindowTitle);
+
+    HWND targetWindowHandle = getWindowHandleByTitle(executableName.c_str());
 
     // Show the window.
     bbWindow.Show(SW_SHOW);
 
-    HWND targetWindowHandle = bbWindow.GetHandle();
-    int res = (directXVersion == 12) ?
-        HookAndAttachWindow<D3D12PresentHook>(targetWindowHandle, outputFolder) :
-        HookAndAttachWindow<D3D11PresentHook>(targetWindowHandle, outputFolder);
+    int res = HookAndAttachWindow<HookT>(targetWindowHandle, outputFolder);
 
     // Unitialize the window.
     bbWindow.Uninitialize();
@@ -85,7 +87,6 @@ int WithTestWindow(int directXVersion, std::wstring outputFolder) {
 
 int CALLBACK WinMain(_In_ HINSTANCE instanceHandle, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int cmdShow) {
     int directXVersion = 11;
-    std::wstring outputFolder = L"";
     std::wstring executableName;
 
     int argCount = 0;
@@ -115,5 +116,7 @@ int CALLBACK WinMain(_In_ HINSTANCE instanceHandle, _In_opt_ HINSTANCE, _In_ LPS
         LocalFree(argList);
     }
 
-    return WithTestWindow(directXVersion, outputFolder);
+    return (directXVersion == 12)?
+        WithAppWindow<D3D12Renderer, D3D12PresentHook>(executableName):
+        WithAppWindow<D3D11Renderer, D3D11PresentHook>(executableName);
 }
