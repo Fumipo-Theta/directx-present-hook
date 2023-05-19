@@ -27,8 +27,8 @@ BlackBoxDXWindow<RendererT> PrepareWindow(std::wstring_view blackBoxDXWindowTitl
     return blackBoxDXWindow;
 }
 
-template<class RendererT, class HookT>
-int Test(BlackBoxDXWindow<RendererT> bbWindow, const std::wstring& outputFolder) {
+template<class HookT>
+int HookAndAttachWindow(HWND targetWindowHandle, const std::wstring& outputFolder) {
   HRESULT hr;
 
   // Hook!
@@ -42,7 +42,7 @@ int Test(BlackBoxDXWindow<RendererT> bbWindow, const std::wstring& outputFolder)
   }
 
   // Set the hook object to capture some frames.
-  hr = HookT::Get()->CaptureFrames(bbWindow.GetHandle(), outputFolder, 10);
+  hr = HookT::Get()->CaptureFrames(targetWindowHandle, outputFolder, 10);
   if (FAILED(hr)) {
     std::wstring message =
       std::format(L"Could not start frame capturing. Error: {:#x}.",
@@ -50,9 +50,6 @@ int Test(BlackBoxDXWindow<RendererT> bbWindow, const std::wstring& outputFolder)
     MessageBox(NULL, message.data(), L"Error", MB_OK);
     return 1;
   }
-
-  // Show the window.
-  bbWindow.Show(SW_SHOW);
 
   MSG msg = {};
   while (msg.message != WM_QUIT) {
@@ -62,16 +59,34 @@ int Test(BlackBoxDXWindow<RendererT> bbWindow, const std::wstring& outputFolder)
     }
   }
 
-  // Unitialize the window.
-  bbWindow.Uninitialize();
-
   // Exit.
   return static_cast<char>(msg.wParam);
 }
 
+int WithTestWindow(int directXVersion, std::wstring outputFolder) {
+    BlackBoxDXWindow bbWindow = PrepareWindow<D3D11Renderer>(
+        (directXVersion == 12) ?
+        L"DirectX 12 Black Box Window" :
+        L"DirectX 11 Black Box Window"
+    );
+
+    // Show the window.
+    bbWindow.Show(SW_SHOW);
+
+    HWND targetWindowHandle = bbWindow.GetHandle();
+    int res = (directXVersion == 12) ?
+        HookAndAttachWindow<D3D12PresentHook>(targetWindowHandle, outputFolder) :
+        HookAndAttachWindow<D3D11PresentHook>(targetWindowHandle, outputFolder);
+
+    // Unitialize the window.
+    bbWindow.Uninitialize();
+    return res;
+}
+
 int CALLBACK WinMain(_In_ HINSTANCE instanceHandle, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int cmdShow) {
     int directXVersion = 11;
-    std::wstring outputFolder;
+    std::wstring outputFolder = L"";
+    std::wstring executableName;
 
     int argCount = 0;
     LPWSTR* argList = CommandLineToArgvW(GetCommandLine(), &argCount);
@@ -95,16 +110,10 @@ int CALLBACK WinMain(_In_ HINSTANCE instanceHandle, _In_opt_ HINSTANCE, _In_ LPS
             }
         }
         if (argCount > 2) {
-            outputFolder = argList[2];
+            executableName = argList[2];
         }
         LocalFree(argList);
     }
 
-    BlackBoxDXWindow bbWindow = PrepareWindow<D3D11Renderer>(
-        (directXVersion == 12) ? 
-        L"DirectX 12 Black Box Window" : 
-        L"DirectX 11 Black Box Window"
-    );
-
-    return Test<D3D11Renderer, D3D11PresentHook>(bbWindow, outputFolder);
+    return WithTestWindow(directXVersion, outputFolder);
 }
