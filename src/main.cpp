@@ -2,6 +2,9 @@
 // Licensed under the MIT License (MIT).
 
 #include <Windows.h>
+#include <TlHelp32.h>
+#include <string>
+#include <iostream>
 
 #include <format>
 
@@ -11,6 +14,8 @@
 #include "d3d12-renderer.h"
 
 #include "black-box-dx-window.h"
+
+HWND g_hwnd = NULL;
 
 template<class RendererT>
 BlackBoxDXWindow<RendererT> PrepareWindow(std::wstring_view blackBoxDXWindowTitle) {
@@ -67,13 +72,90 @@ HWND getWindowHandleByTitle(LPCWSTR windowTitle) {
     return  FindWindow(NULL, windowTitle);
 }
 
+BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
+    DWORD lpdwProcessId;
+    GetWindowThreadProcessId(hwnd, &lpdwProcessId);
+    if (lpdwProcessId == lParam)
+    {
+        std::cout << "Window handle: " << hwnd << std::endl;
+        g_hwnd = hwnd;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+void GetWindowHandleByPID(DWORD processId) {
+    EnumWindows(EnumWindowsProc, processId);
+}
+
+DWORD GetPIDByExeName(const std::wstring& exeName) {
+    DWORD pid = 0;
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnap != INVALID_HANDLE_VALUE)
+    {
+        PROCESSENTRY32 pe32;
+        pe32.dwSize = sizeof(PROCESSENTRY32);
+        if (Process32First(hSnap, &pe32))
+        {
+            do
+            {
+                if (exeName == pe32.szExeFile)
+                {
+                    pid = pe32.th32ProcessID;
+                    break;
+                }
+            } while (Process32Next(hSnap, &pe32));
+        }
+        CloseHandle(hSnap);
+    }
+    return pid;
+}
+
+
+template<class RendererT, class HookT>
+int WithAppWindow2(std::wstring executableName) {
+    std::wstring outputFolder = L"";
+    LPCWSTR testWindowTitle = L"DirectX Black Box Window";
+    BlackBoxDXWindow bbWindow = PrepareWindow<RendererT>(testWindowTitle);
+    int res = 1;
+
+    //bbWindow.Show(SW_SHOW);
+
+    DWORD pid = 4344; // GetPIDByExeName(executableName);
+    std::cout << "PID" << pid << std::endl;
+    if (pid != 0) {
+        GetWindowHandleByPID(pid);
+        if (g_hwnd != NULL) {
+            HWND targetWindowHandle = g_hwnd;
+            // Show the window.
+            
+
+            res = HookAndAttachWindow<HookT>(targetWindowHandle, outputFolder);
+
+           
+        }
+        else {
+            std::cout << "Window handle is not found!" << std::endl;
+            return 1;
+        }
+    }
+    else {
+        std::cout << "PID is not found!" << std::endl;
+        return 1;
+    }
+
+    // Unitialize the window.
+    //bbWindow.Uninitialize();
+    return res;
+}
+
 template<class RendererT, class HookT>
 int WithAppWindow(std::wstring executableName) {
     std::wstring outputFolder = L"";
     LPCWSTR testWindowTitle = L"DirectX Black Box Window";
     BlackBoxDXWindow bbWindow = PrepareWindow<RendererT>(testWindowTitle);
 
-    HWND targetWindowHandle = getWindowHandleByTitle(executableName.c_str());
+    HWND targetWindowHandle = getWindowHandleByTitle(testWindowTitle); // getWindowHandleByTitle(executableName.c_str());
 
     // Show the window.
     bbWindow.Show(SW_SHOW);
@@ -117,6 +199,6 @@ int CALLBACK WinMain(_In_ HINSTANCE instanceHandle, _In_opt_ HINSTANCE, _In_ LPS
     }
 
     return (directXVersion == 12)?
-        WithAppWindow<D3D12Renderer, D3D12PresentHook>(executableName):
-        WithAppWindow<D3D11Renderer, D3D11PresentHook>(executableName);
+        WithAppWindow2<D3D12Renderer, D3D12PresentHook>(executableName):
+        WithAppWindow2<D3D11Renderer, D3D11PresentHook>(executableName);
 }
